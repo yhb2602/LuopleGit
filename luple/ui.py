@@ -11,11 +11,11 @@ def report(title, content, picker=choose):
 
 def save_row(repo, state, number):
     entry = state["saves"][number]
-    stamp = datetime.fromtimestamp(entry["time"]).strftime("%m-%d %H:%M")
+    stamp = datetime.fromtimestamp(entry["time"]).strftime("%m-%d/%H:%M")
     marks = repo.markers(state, number)
     prefix = "■ " if "●" in marks else "  "
     suffix = " ".join(mark for mark in ("◆", "★") if mark in marks)
-    return (f"{prefix}{safe_text(entry['message'])} · {repo.label(state, number)} · {stamp}"
+    return (f"{prefix}{repo.label(state, number)} ({stamp}) | ☞ {safe_text(entry['message'])}"
             + ("  " + suffix if suffix else "") + (" [삭제됨]" if entry["deleted"] else ""))
 
 

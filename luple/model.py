@@ -247,12 +247,15 @@ class Repository(Storage):
             raise LupleError(f"페이지는 1~{pages} 범위입니다.")
         rows = [f"History | 현재 {self.label(state, state['current']['save'])} | {page}/{pages}"]
         for stamp, n, temporary in records[(page - 1) * 10:page * 10]:
-            date = datetime.fromtimestamp(stamp).strftime("%m-%d %H:%M")
+            date = datetime.fromtimestamp(stamp).strftime("%m-%d/%H:%M")
             if temporary:
                 rows.append(f"{date}  [자동 복구] {n} · {safe_text(state['temps'][n]['message'])}")
             else:
                 entry = state["saves"][n]
-                rows.append(f"{date}  {safe_text(entry['message'])}  {self.label(state, n)} {self.markers(state, n)}" + (" [삭제됨]" if entry["deleted"] else ""))
+                marks = self.markers(state, n)
+                prefix = "■ " if "●" in marks else "  "
+                suffix = " ".join(mark for mark in ("◆", "★") if mark in marks)
+                rows.append(f"{prefix}{self.label(state, n)} ({date}) | ☞ {safe_text(entry['message'])}" + ("  " + suffix if suffix else "") + (" [삭제됨]" if entry["deleted"] else ""))
         return "\n".join(rows)
 
     def observe(self, identifier):

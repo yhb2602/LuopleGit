@@ -1,0 +1,243 @@
+"""Personal history transport; never rewinds remote branches or edits work files."""
+import copy
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import uuid
+from urllib.parse import urlsplit
+
+from .core import LupleError, git, git_executable
+
+BRANCH = "refs/heads/luple/state"
+CACHE = "refs/luple/remote/state"
+
+
+def address(value):
+    value = value.strip()
+    if not value or value.startswith("-") or any(ord(c) < 32 for c in value):
+        raise LupleError("유효한 저장소 주소를 입력하세요.")
+    if "://" in value:
+        parsed = urlsplit(value)
+        if parsed.scheme not in ("https", "ssh", "file"):
+            raise LupleError("HTTPS, SSH 또는 로컬 저장소 주소를 사용하세요.")
+        if parsed.password or (parsed.scheme == "https" and parsed.username):
+            raise LupleError("주소에 인증 정보를 넣지 마세요. Git 자격 증명 관리자나 SSH를 사용하세요.")
+    elif "::" in value:
+        raise LupleError("외부 전송 도우미 주소는 지원하지 않습니다.")
+    return value
+
+
+def run(repo, *args, timeout=120):
+    args = list(args)
+    # Git's default local transport invokes sh on Windows. Invoke the native
+    # Git upload/receive service directly instead; only generated local URLs
+    # get ext permission, never a user-supplied helper command.
+    prefix = []
+    if os.name == "nt" and args and args[0] in ("ls-remote", "fetch", "push"):
+        for index in range(1, len(args)):
+            raw = args[index]
+            if raw.startswith("-") or "://" in raw: continue
+            candidate = Path(raw)
+            if not candidate.is_absolute(): candidate = repo.root / candidate
+            if candidate.is_dir():
+                escape = lambda value: value.replace("%", "%%").replace(" ", "% ")
+                service = "receive-pack" if args[0] == "push" else "upload-pack"
+                args[index] = "ext::" + escape(Path(git_executable()).as_posix()) + " " + service + " " + escape(candidate.resolve().as_posix())
+                prefix = ["-c", "protocol.ext.allow=always"]
+                break
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_TERMINAL_PROMPT="0")
+    try:
+        p = subprocess.run([git_executable(), "-C", str(repo.root), *prefix, *args],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise LupleError("원격 작업 시간 초과. 로컬 저장은 보존되어 있습니다.")
+    if p.returncode:
+        raise LupleError(p.stderr.decode("utf-8", "replace").strip() or p.stdout.decode("utf-8", "replace").strip())
+    return p.stdout.decode("utf-8", "replace").strip()
+
+
+def configure(repo, url):
+    if url != "off": address(url)
+    with repo.lock():
+        state = repo.read()
+        state["config"]["personal_remote"] = "" if url == "off" else url
+        state.pop("remote_status", None)
+        repo.write(state, "personal-remote")
+    return "개인 원격 저장소 설정 완료. 기존 기록 전송은 lu i sync로 시작하세요."
+
+
+def ensure_uids(state):
+    for entry in state["lines"].values():
+        entry.setdefault("uid", uuid.uuid4().hex)
+    for entry in state["saves"].values():
+        entry.setdefault("uid", uuid.uuid4().hex)
+
+
+def validate(repo, data):
+    if data.get("format") != 1 or not isinstance(data.get("saves"), dict) or not isinstance(data.get("lines"), dict):
+        raise LupleError("지원하지 않는 루플 원격 기록입니다.")
+    saves, lines = data["saves"], data["lines"]
+    if len(saves) > 100000:
+        raise LupleError("원격 저장 기록이 너무 큽니다.")
+    for key, entry in saves.items():
+        if not re.fullmatch(r"[0-9]+", key) or not re.fullmatch(r"[0-9a-f]{32}", str(entry.get("uid", ""))):
+            raise LupleError("잘못된 원격 저장 식별자입니다.")
+        if not isinstance(entry, dict) or not isinstance(entry.get("step"), int) or entry["step"] < -1:
+            raise LupleError("잘못된 원격 저장 단계입니다.")
+        if entry.get("line") not in lines or (entry.get("parent") is not None and entry["parent"] not in saves):
+            raise LupleError("원격 기록의 연결이 올바르지 않습니다.")
+        if not isinstance(entry.get("message"), str) or not isinstance(entry.get("time"), (int, float)):
+            raise LupleError("잘못된 원격 저장 정보입니다.")
+        commit = entry.get("commit")
+        if commit is not None:
+            if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
+                raise LupleError("잘못된 원격 커밋입니다.")
+            git(repo.root, "cat-file", "-e", commit + "^{commit}")
+        elif not entry.get("purged"):
+            raise LupleError("원격 저장점의 커밋이 없습니다.")
+    for key, line in lines.items():
+        if not re.fullmatch(r"S[0-9]+", key) or line.get("head") not in saves or not re.fullmatch(r"[0-9a-f]{32}", str(line.get("uid", ""))):
+            raise LupleError("잘못된 원격 세계선입니다.")
+    for key in saves:
+        seen = set()
+        while key is not None:
+            if key in seen: raise LupleError("원격 기록에 순환 연결이 있습니다.")
+            seen.add(key)
+            key = saves[key]["parent"]
+
+
+def import_graph(repo, state, data):
+    validate(repo, data)
+    incoming = data["saves"]
+    # A pristine empty project can adopt remote naming without touching files.
+    if len(state["saves"]) == 1 and not state["temps"] and not repo.files(state["saves"]["0"]["commit"]) and not git(repo.root, "ls-files", "--others", "--exclude-standard"):
+        roots = [n for n, e in incoming.items() if e["parent"] is None and e.get("commit") and not repo.files(e["commit"])]
+        if roots:
+            old_config, favorites = state["config"], state["favorites"]
+            state["saves"] = copy.deepcopy(incoming)
+            state["lines"] = copy.deepcopy(data["lines"])
+            root = roots[0]
+            state["current"] = {"line": incoming[root]["line"], "save": root}
+            state["next_save"] = max(int(n) for n in incoming) + 1
+            state["next_line"] = max(int(n[1:]) for n in state["lines"]) + 1
+            return
+    existing = {e["commit"]: n for n, e in state["saves"].items() if e.get("commit")}
+    known_uid = {e.get("uid"): n for n, e in state["saves"].items()}
+    ids = {}
+    for n, entry in incoming.items():
+        if entry.get("uid") in known_uid:
+            ids[n] = known_uid[entry["uid"]]
+        elif entry.get("commit") in existing:
+            ids[n] = existing[entry["commit"]]
+        else:
+            ids[n] = str(state["next_save"])
+            state["next_save"] += 1
+    local_uids = {v["uid"]: k for k, v in state["lines"].items()}
+    mapping = {}
+    for name, remote_line in data["lines"].items():
+        local = local_uids.get(remote_line["uid"])
+        remote_head = ids[remote_line["head"]]
+        if local is None:
+            local = next((k for k, v in state["lines"].items() if v["head"] == remote_head), None)
+        if local is not None:
+            local_head = state["lines"][local]["head"]
+            # Divergent heads become separate worldlines, never overwrite one.
+            remote_ancestors = []
+            cursor = remote_line["head"]
+            while cursor is not None:
+                remote_ancestors.append(ids[cursor]); cursor = incoming[cursor]["parent"]
+            if local_head not in remote_ancestors and remote_head not in repo.ancestry(state, local):
+                local = next((k for k, v in state["lines"].items() if v["head"] == remote_head), None)
+        if local is None:
+            local = "S" + str(state["next_line"]); state["next_line"] += 1
+            state["lines"][local] = {"head": remote_head, "fork": ids.get(remote_line.get("fork")), "uid": remote_line["uid"] if remote_line["uid"] not in local_uids else uuid.uuid4().hex}
+        elif remote_head not in repo.ancestry(state, local):
+            state["lines"][local]["head"] = remote_head
+        mapping[name] = local
+    for n, entry in incoming.items():
+        if ids[n] in state["saves"]:
+            continue
+        copied = copy.deepcopy(entry)
+        copied["parent"] = ids.get(entry["parent"])
+        copied["line"] = mapping[entry["line"]]
+        state["saves"][ids[n]] = copied
+
+
+def sync(repo, push=True):
+    with repo.lock():
+        state = repo.read()
+        url = state["config"].get("personal_remote", "")
+        if not url: return "개인 원격 미설정 · 내 PC에 보존"
+        address(url)
+        ensure_uids(state)
+        repo.write(state, "sync-start")
+        listing = run(repo, "ls-remote", "--refs", url, BRANCH)
+        remote_head = None
+        if listing:
+            run(repo, "fetch", "--no-tags", url, "+" + BRANCH + ":" + CACHE)
+            remote_head = git(repo.root, "rev-parse", CACHE).decode().strip()
+            payload = git(repo.root, "show", remote_head + ":state.json")
+            if len(payload) > 32 * 1024 * 1024: raise LupleError("원격 메타데이터가 너무 큽니다.")
+            try: data = json.loads(payload)
+            except ValueError: raise LupleError("원격 메타데이터를 읽을 수 없습니다.")
+            import_graph(repo, state, data)
+        for n, e in state["saves"].items():
+            if e.get("commit"):
+                git(repo.root, "update-ref", "refs/luple/saves/" + n, e["commit"])
+        repo.write(state, "remote-fetch")
+        if not push:
+            return "개인 원격 기록을 가져왔습니다. 현재 작업 파일은 그대로입니다."
+        payload = {"format": 1, "saves": state["saves"], "lines": state["lines"]}
+        blob = git(repo.root, "hash-object", "-w", "--stdin", data=json.dumps(payload, ensure_ascii=False).encode()).decode().strip()
+        tree = git(repo.root, "mktree", data=f"100644 blob {blob}\tstate.json\n".encode()).decode().strip()
+        # Reachability anchors retain every snapshot without changing Git main.
+        parents = list(dict.fromkeys(e["commit"] for e in state["saves"].values() if e.get("commit")))
+        anchor = None
+        for offset in range(0, len(parents), 64):
+            anchor = repo.commit(tree, ([anchor] if anchor else []) + parents[offset:offset + 64], "Luple snapshot anchors")
+        commit = repo.commit(tree, list(dict.fromkeys(p for p in (remote_head, anchor) if p)), "Luple personal history sync")
+        # Normal fast-forward push: concurrent remote updates are rejected.
+        run(repo, "push", url, commit + ":" + BRANCH)
+        state["remote_status"] = "동기화 완료"
+        repo.write(state, "remote-push", commit=commit)
+        return "개인 원격 동기화 완료"
+
+
+def safe_sync(repo, push=True):
+    try:
+        return sync(repo, push)
+    except (LupleError, OSError, ValueError, KeyError, TypeError) as error:
+        message = str(error)
+        try:
+            with repo.lock():
+                state = repo.read()
+                state["remote_status"] = "동기화 대기"
+                repo.write(state, "remote-pending")
+        except (LupleError, OSError, ValueError):
+            pass
+        return "로컬 기록 유지 · 원격 동기화 대기: " + message + "\nlu i sync로 다시 시도하세요."
+
+
+def fetch_target(repo, url, branch):
+    address(url)
+    if not branch or branch.startswith("-"):
+        raise LupleError("가져올 브랜치를 선택하세요.")
+    git(repo.root, "check-ref-format", "refs/heads/" + branch)
+    ref = "refs/luple/incoming/" + uuid.uuid4().hex
+    run(repo, "fetch", "--no-tags", url, "refs/heads/" + branch + ":" + ref)
+    return git(repo.root, "rev-parse", ref).decode().strip()
+
+
+def send(repo, url, branch, identifier):
+    address(url)
+    git(repo.root, "check-ref-format", "refs/heads/" + branch)
+    with repo.lock():
+        state = repo.read()
+        n = repo.resolve(state, identifier or state["current"]["save"])
+        entry = state["saves"][n]
+        if entry["deleted"] or not entry.get("commit"): raise LupleError("삭제된 저장점은 보낼 수 없습니다.")
+        run(repo, "push", url, entry["commit"] + ":refs/heads/" + branch)
+        return "전송 완료: " + branch + " (상대 Main 자동 병합 없음)"

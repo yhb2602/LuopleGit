@@ -76,7 +76,7 @@ class Repository:
     def initialize(cls, cwd="."):
         cwd = Path(cwd).resolve()
         if not (cwd / ".git").exists():
-            git(cwd, "init")
+            git(cwd, "init", "--initial-branch=main")
         repo = cls(cwd)
         # Worktrees share refs but require an explicit cross-worktree protocol.
         common = git(repo.root, "rev-parse", "--git-common-dir").decode().strip()

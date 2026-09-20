@@ -8,7 +8,7 @@ from .model import Repository
 
 def parser():
     cli = argparse.ArgumentParser(prog="lu", description="루플 Git · 저장하고, 골라서 돌아오기")
-    cli.add_argument("--version", action="version", version="Luple Git 0.4.0")
+    cli.add_argument("--version", action="version", version="Luple Git 0.5.0")
     cli.add_argument("-C", default=".", metavar="폴더", help="프로젝트 폴더 (기본: 현재 폴더)")
     commands = cli.add_subparsers(dest="command")
     save = commands.add_parser("s", aliases=["save"], help="현재 작업 저장")
@@ -52,6 +52,9 @@ def parser():
     config = sub.add_parser("config")
     config.add_argument("key", nargs="?")
     config.add_argument("value", nargs="?")
+    branch = sub.add_parser("branch", help="세계선별 코드 브랜치 이름")
+    branch.add_argument("line", nargs="?")
+    branch.add_argument("name", nargs="?")
     remote = sub.add_parser("remote", help="개인 원격 저장소 주소 설정 / off로 해제")
     remote.add_argument("url", nargs="?")
     for name in ("init", "status", "recover"):
@@ -140,6 +143,9 @@ def dispatch(args):
     if args.command in ("status", "recover"):
         return getattr(repo, args.command)()
     if args.command == "sys":
+        if args.setting == "branch":
+            from .remotes import configure_branch
+            return configure_branch(repo, args.line, args.name)
         if args.setting == "remote":
             from .remotes import configure
             return configure(repo, args.url) if args.url else repo.read()["config"].get("personal_remote", "") or "개인 원격 저장소 미설정"

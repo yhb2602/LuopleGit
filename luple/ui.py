@@ -144,8 +144,8 @@ def browse(repo, line=None, page=None, picker=None, history=False, deleted=False
 
 def settings(repo):
     while True:
-        selected = choose("Sys", ["사용자·프로젝트 설정", "자동 저장 설정", "자동 복구 기록", "저장 기록 삭제", "삭제된 기록", "중단된 Load 복구", "다른 프로젝트 열기", "돌아가기"])
-        if selected is None or selected == 7:
+        selected = choose("Sys", ["사용자·프로젝트 설정", "자동 저장 설정", "자동 복구 기록", "저장 기록 삭제", "삭제된 기록", "중단된 Load 복구", "다른 프로젝트 열기", "세계선 브랜치 이름", "돌아가기"])
+        if selected is None or selected == 8:
             return
         try:
             state = repo.read() if selected != 5 else None
@@ -190,6 +190,10 @@ def settings(repo):
                     report("완전 삭제", repo.trash(n, "purge", input("확인할 저장점 이름: ")))
             elif selected == 5:
                 report("중단된 Load 복구", repo.recover())
+            elif selected == 7:
+                from .remotes import configure_branch
+                print(configure_branch(repo))
+                print(configure_branch(repo, input("세계선 (예: S0): ").strip(), input("새 브랜치 이름: ").strip()))
             elif selected == 6:
                 return home(Repository.open(input("프로젝트 폴더: ").strip().strip('"')))
         except (LupleError, ValueError) as error:

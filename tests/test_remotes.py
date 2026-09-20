@@ -36,6 +36,26 @@ class RemoteTests(unittest.TestCase):
         (repo.root / name).write_text(content, encoding="utf-8")
         return repo.save(content)
 
+    def test_code_branches_and_names(self):
+        self.assertEqual(git(self.a.root, "symbolic-ref", "--short", "HEAD").decode().strip(), "main")
+        remotes.configure(self.a, str(self.remote))
+        self.save(self.a, "code.txt", "one")
+        self.save(self.a, "code.txt", "two")
+        tip = git(self.remote, "rev-parse", "refs/heads/main")
+        self.assertEqual(git(self.remote, "show", "main:code.txt"), b"two")
+        self.a.load("S0-v1.0000")
+        self.assertEqual(git(self.remote, "rev-parse", "refs/heads/main"), tip)
+        self.save(self.a, "code.txt", "alternate")
+        self.assertEqual(git(self.remote, "show", "luple/S1:code.txt"), b"alternate")
+        self.assertEqual(git(self.remote, "rev-parse", "refs/heads/main"), tip)
+        remotes.configure_branch(self.a, "S1", "payment")
+        remotes.sync(self.a)
+        self.assertEqual(git(self.remote, "show", "payment:code.txt"), b"alternate")
+        with self.assertRaises(LupleError):
+            remotes.configure_branch(self.a, "S1", "main")
+        with self.assertRaises(LupleError):
+            remotes.configure_branch(self.a, "S1", "luple/state")
+
     def test_personal_sync_load_fork_and_second_pc(self):
         remotes.configure(self.a, str(self.remote))
         self.assertIn("동기화 완료", self.save(self.a, "code.txt", "one"))

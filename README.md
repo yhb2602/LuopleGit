@@ -1,3 +1,23 @@
+# 0.5.0 코드 브랜치 동기화
+
+새 프로젝트는 main으로 시작합니다. 기존 프로젝트의 S0은 기존 설정의 브랜치를 유지합니다.
+Save 및 lu i sync는 각 세계선의 마지막 저장 파일을 코드 브랜치로 전송하고,
+luple/state에는 복원용 기록을 보관합니다. Load는 원격 브랜치를 되감지 않습니다.
+코드와 기록은 atomic push로 함께 반영하며, 원격 기록과 충돌하면 강제 덮어쓰기하지 않습니다.
+
+```powershell
+lu sys branch
+lu sys branch S0 main
+lu sys branch S1 payment
+lu i sync
+```
+
+기존 master 프로젝트를 main으로 보내려면 위 S0 설정을 사용하세요.
+브랜치 이름 변경은 다음 sync에 반영됩니다. 기존 원격 이름은 삭제하지 않고 보존합니다.
+GitHub 기본 브랜치 설정 자체는 변경하지 않습니다. 기존 저장소는 GitHub 설정에서 main을 기본으로 선택하세요.
+브랜치 이름은 원격 코드 게시용 매핑입니다. 로컬 Git HEAD/index를 직접 이동시키지 않는 기존 저장 방식을 유지합니다.
+아래 이전 버전 설명의 “main은 변경하지 않음”은 0.5.0에서는 위 규칙으로 대체됩니다.
+
 # 루플 Git 0.4.0 — Windows CLI
 
 설치 후 프로젝트 폴더에서 `lu`를 실행합니다. Python·Git 별도 설치가 필요 없는 Windows x64 배포본을 제공합니다.

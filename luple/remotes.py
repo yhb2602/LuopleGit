@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 import uuid
+import time
 from urllib.parse import urlsplit
 
 from .core import LupleError, git, git_executable
@@ -74,6 +75,43 @@ def ensure_uids(state):
         entry.setdefault("uid", uuid.uuid4().hex)
     for entry in state["saves"].values():
         entry.setdefault("uid", uuid.uuid4().hex)
+
+
+def ensure_branches(repo, state):
+    used = {v["branch"] for v in state["lines"].values() if v.get("branch")}
+    for key, line in state["lines"].items():
+        if not line.get("branch"):
+            name = state["config"].get("branch", "main") if key == "S0" else "luple/" + key
+            if name in used or name == "luple/state":
+                name = "luple/" + key + "-" + line.get("uid", uuid.uuid4().hex)[:8]
+            line["branch"] = name
+            used.add(name)
+        git(repo.root, "check-ref-format", "refs/heads/" + line["branch"])
+        if line["branch"] == "luple/state":
+            raise LupleError("luple/state는 내부 기록용 이름입니다.")
+    names = [v["branch"] for v in state["lines"].values()]
+    if len(names) != len(set(names)):
+        raise LupleError("세계선의 브랜치 이름이 중복됩니다. lu sys branch로 변경하세요.")
+
+
+def configure_branch(repo, line=None, name=None):
+    with repo.lock():
+        state = repo.read()
+        ensure_uids(state)
+        ensure_branches(repo, state)
+        if name is None:
+            return "\n".join(k + " → " + v["branch"] for k, v in state["lines"].items())
+        if line not in state["lines"]:
+            raise LupleError("세계선을 찾을 수 없습니다.")
+        if not name or name.startswith("-"):
+            raise LupleError("올바른 브랜치 이름을 입력하세요.")
+        git(repo.root, "check-ref-format", "refs/heads/" + name)
+        if name == "luple/state" or any(k != line and v["branch"] == name for k,v in state["lines"].items()):
+            raise LupleError("이미 사용 중이거나 예약된 브랜치 이름입니다.")
+        state["lines"][line]["branch"] = name
+        state["lines"][line]["branch_changed"] = time.time_ns()
+        repo.write(state, "branch-name", line=line, branch=name)
+    return "브랜치 이름 설정 완료: " + line + " → " + name + "\nlu i sync로 반영하세요. 기존 원격 이름은 안전을 위해 보존합니다."
 
 
 def validate(repo, data):
@@ -152,10 +190,17 @@ def import_graph(repo, state, data):
             if local_head not in remote_ancestors and remote_head not in repo.ancestry(state, local):
                 local = next((k for k, v in state["lines"].items() if v["head"] == remote_head), None)
         if local is None:
+            owner = local_uids.get(remote_line["uid"])
+            if owner is not None and remote_line.get("branch"):
+                state["lines"][owner]["branch"] = "luple/diverged-" + state["lines"][owner]["uid"][:8]
             local = "S" + str(state["next_line"]); state["next_line"] += 1
             state["lines"][local] = {"head": remote_head, "fork": ids.get(remote_line.get("fork")), "uid": remote_line["uid"] if remote_line["uid"] not in local_uids else uuid.uuid4().hex}
         elif remote_head not in repo.ancestry(state, local):
             state["lines"][local]["head"] = remote_head
+        target = state["lines"][local]
+        if remote_line.get("branch") and (not target.get("branch") or target["uid"] != remote_line["uid"] or remote_line.get("branch_changed", 0) > target.get("branch_changed", 0)):
+            target["branch"] = remote_line["branch"]
+            target["branch_changed"] = remote_line.get("branch_changed", 0)
         mapping[name] = local
     for n, entry in incoming.items():
         if ids[n] in state["saves"]:
@@ -187,6 +232,7 @@ def sync(repo, push=True):
         for n, e in state["saves"].items():
             if e.get("commit"):
                 git(repo.root, "update-ref", "refs/luple/saves/" + n, e["commit"])
+        ensure_branches(repo, state)
         repo.write(state, "remote-fetch")
         if not push:
             return "개인 원격 기록을 가져왔습니다. 현재 작업 파일은 그대로입니다."
@@ -200,7 +246,12 @@ def sync(repo, push=True):
             anchor = repo.commit(tree, ([anchor] if anchor else []) + parents[offset:offset + 64], "Luple snapshot anchors")
         commit = repo.commit(tree, list(dict.fromkeys(p for p in (remote_head, anchor) if p)), "Luple personal history sync")
         # Normal fast-forward push: concurrent remote updates are rejected.
-        run(repo, "push", url, commit + ":" + BRANCH)
+        specs = [commit + ":" + BRANCH]
+        for line in state["lines"].values():
+            head = state["saves"][line["head"]]
+            if head.get("commit") and not head.get("purged"):
+                specs.append(head["commit"] + ":refs/heads/" + line["branch"])
+        run(repo, "push", "--atomic", url, *specs)
         state["remote_status"] = "동기화 완료"
         repo.write(state, "remote-push", commit=commit)
         return "개인 원격 동기화 완료"

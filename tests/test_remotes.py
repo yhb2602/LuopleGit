@@ -56,6 +56,12 @@ class RemoteTests(unittest.TestCase):
         with self.assertRaises(LupleError):
             remotes.configure_branch(self.a, "S1", "luple/state")
 
+    def test_save_shows_remote_address_after_successful_sync(self):
+        remotes.configure(self.a, str(self.remote))
+        output = self.save(self.a, "readme.md", "saved")
+        self.assertIn("개인 원격 동기화 완료", output)
+        self.assertIn("▶ GitHub에서 확인: " + str(self.remote), output)
+
     def test_personal_sync_load_fork_and_second_pc(self):
         remotes.configure(self.a, str(self.remote))
         self.assertIn("동기화 완료", self.save(self.a, "code.txt", "one"))

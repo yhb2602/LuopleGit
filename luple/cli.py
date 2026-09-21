@@ -8,7 +8,7 @@ from .model import Repository
 
 def parser():
     cli = argparse.ArgumentParser(prog="lu", description="루플 Git · 저장하고, 골라서 돌아오기")
-    cli.add_argument("--version", action="version", version="Luple Git 0.5.1")
+    cli.add_argument("--version", action="version", version="Luple Git 0.5.2")
     cli.add_argument("-C", default=".", metavar="폴더", help="프로젝트 폴더 (기본: 현재 폴더)")
     commands = cli.add_subparsers(dest="command")
     save = commands.add_parser("s", aliases=["save"], help="현재 작업 저장")

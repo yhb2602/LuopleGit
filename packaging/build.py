@@ -35,11 +35,11 @@ shutil.copytree(a.git_root, stage / "runtime/git", dirs_exist_ok=True)
 csc = Path("C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe")
 subprocess.run([str(csc), "/nologo", "/target:exe", "/platform:x64", "/win32manifest:" + str(source / "packaging/app.manifest"), "/reference:System.Windows.Forms.dll", "/out:" + str(stage / "lu.exe"), str(source / "packaging/Launcher.cs")], check=True)
 (stage / "THIRD-PARTY.txt").write_text("Bundled, unmodified Python runtime: runtime/python/LICENSE.txt\nBundled Git for Windows: runtime/git/LICENSE.txt and runtime/git/mingw64/share/licenses\nGit for Windows source releases: https://github.com/git-for-windows/git/releases\nPython source releases: https://www.python.org/downloads/source/\n", encoding="utf-8")
-portable = out / "LupleGit-0.5.1-Windows-x64.zip"
+portable = out / "LupleGit-0.5.2-Windows-x64.zip"
 with zipfile.ZipFile(portable, "w", zipfile.ZIP_DEFLATED) as z:
     for path in stage.rglob("*"):
         if path.is_file(): z.write(path, path.relative_to(stage).as_posix())
-subprocess.run([str(csc), "/nologo", "/target:exe", "/platform:x64", "/win32manifest:" + str(source / "packaging/app.manifest"), "/reference:System.Core.dll", "/reference:System.IO.Compression.dll", "/reference:System.IO.Compression.FileSystem.dll", "/resource:" + str(portable) + ",luple.zip", "/out:" + str(out / "LupleGit-Setup-0.5.1.exe"), str(source / "packaging/Setup.cs")], check=True)
+subprocess.run([str(csc), "/nologo", "/target:exe", "/platform:x64", "/win32manifest:" + str(source / "packaging/app.manifest"), "/reference:System.Core.dll", "/reference:System.IO.Compression.dll", "/reference:System.IO.Compression.FileSystem.dll", "/resource:" + str(portable) + ",luple.zip", "/out:" + str(out / "LupleGit-Setup-0.5.2.exe"), str(source / "packaging/Setup.cs")], check=True)
 print(portable)
 print(out / "LupleGit-Setup-0.5.0.exe")
 

@@ -129,7 +129,12 @@ class Repository(Storage):
     def save(self, message):
         result = self._save_local(message)
         from .remotes import safe_sync
-        return result.replace(" (원격 백업 미지원)", "") + "\n" + safe_sync(self)
+        sync_result = safe_sync(self)
+        output = result.replace(" (원격 백업 미지원)", "") + "\n" + sync_result
+        remote = self.read()["config"].get("personal_remote", "")
+        if remote and "개인 원격 동기화 완료" in sync_result:
+            output += "\n▶ GitHub에서 확인: " + remote
+        return output
 
     def _save_local(self, message, tree=None, merge_parent=None, expected_current=None, _locked=False):
         message = safe_text(message)

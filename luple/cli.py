@@ -8,11 +8,16 @@ from .model import Repository
 
 def parser():
     cli = argparse.ArgumentParser(prog="lu", description="루플 Git · 저장하고, 골라서 돌아오기")
-    cli.add_argument("--version", action="version", version="Luple Git 0.5.0")
+    cli.add_argument("--version", action="version", version="Luple Git 0.5.1")
     cli.add_argument("-C", default=".", metavar="폴더", help="프로젝트 폴더 (기본: 현재 폴더)")
     commands = cli.add_subparsers(dest="command")
     save = commands.add_parser("s", aliases=["save"], help="현재 작업 저장")
     save.add_argument("message", nargs="?")
+    temp = commands.add_parser("t", aliases=["temp"], help="로컬 임시 저장 · 원격에 동기화하지 않음")
+    temp.add_argument("message", nargs="?", default="임시 저장")
+    temp.add_argument("--clean", action="store_true", help="현재 세계선의 임시 저장은 최근 12개만 유지")
+    temp.add_argument("--list", action="store_true", help="현재 세계선의 임시 저장 목록")
+    temp.add_argument("--recover", metavar="T번호", help="임시 저장을 작업 파일로 복구")
     for name, alias, description in (("l", "load", "저장 목록에서 불러오기"), ("h", "history", "모든 세계선 이력")):
         cmd = commands.add_parser(name, aliases=[alias], help=description)
         if name == "l":
@@ -114,6 +119,18 @@ def dispatch(args):
         from .autosave import start
         start(repo)
         return result
+    if args.command in ("t", "temp"):
+        if args.clean:
+            return repo.clean_temps()
+        if args.recover:
+            return repo.recover_temp(args.recover)
+        if args.list:
+            state = repo.read()
+            line = state["current"]["line"]
+            rows = [(number, entry) for number, entry in state["temps"].items() if entry["base"]["line"] == line]
+            rows.sort(key=lambda item: item[1]["time"], reverse=True)
+            return "\n".join(f"{number} · {entry['message']}" for number, entry in rows) or "현재 세계선에 임시 저장이 없습니다."
+        return repo.temp(args.message)
     if args.command in ("l", "load", "h", "history"):
         if args.page is not None and args.page < 1:
             raise LupleError("페이지는 1 이상입니다.")

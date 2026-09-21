@@ -75,6 +75,16 @@ class ModelTests(unittest.TestCase):
         self.save("still branches")
         self.assertEqual(self.repo.read()["current"]["line"], "S1")
 
+    def test_manual_temp_is_local_and_cleanable(self):
+        self.save("base")
+        for number in range(14):
+            (self.root / "code.txt").write_text(str(number), encoding="utf-8")
+            self.assertIn("임시 저장 완료", self.repo.temp(f"작업 중 {number}"))
+        state = self.repo.read()
+        self.assertEqual(len(state["temps"]), 14)
+        self.assertEqual(self.repo.clean_temps(), "S0 임시 저장 정리 완료: 최근 12개 유지, 2개 삭제")
+        self.assertEqual(len(self.repo.read()["temps"]), 12)
+
     def test_menu_cancel_and_history_load_confirmation(self):
         self.save("one"); self.save("two")
         (self.root / "code.txt").write_text("dirty")

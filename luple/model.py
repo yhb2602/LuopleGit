@@ -335,6 +335,29 @@ class Repository(Storage):
             raise LupleError("기준 저장점이 삭제되었습니다. 먼저 기준 저장점을 복원하세요.")
         return super().recover_temp(number)
 
+    def temp(self, message="임시 저장"):
+        """Create a local-only recovery point; it is deliberately absent from sync payloads."""
+        message = safe_text(message)
+        if not message:
+            raise LupleError("임시 저장 설명을 입력하세요.")
+        number = super().temp(message)
+        state = self.read()
+        return f"임시 저장 완료: {number} · {self.label(state, state['current']['save'])} 기준 · {message}\n내 PC에만 보존되며 원격과 History에는 동기화하지 않습니다."
+
+    def clean_temps(self, keep=12):
+        with self.lock():
+            state = self.read()
+            line = state["current"]["line"]
+            entries = sorted((n for n, entry in state["temps"].items()
+                              if entry["base"]["line"] == line),
+                             key=lambda n: state["temps"][n]["time"], reverse=True)
+            removed = entries[keep:]
+            for number in removed:
+                del state["temps"][number]
+                git(self.root, "update-ref", "-d", f"refs/luple/temps/{number}")
+            self.write(state, "temp-clean", line=line, removed=removed)
+            return f"{line} 임시 저장 정리 완료: 최근 {min(len(entries), keep)}개 유지, {len(removed)}개 삭제"
+
     def autosave(self):
         cfg = self.read()["config"]
         if not cfg["autosave_enabled"]:

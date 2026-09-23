@@ -345,7 +345,7 @@ def safe_sync(repo, push=True):
     try:
         return sync(repo, push)
     except IntegrationRequired as error:
-        return "로컬 저장 완료 · 원격 통합 필요\n" + str(error)
+        return "로컬 기록 보존 · 원격 통합 필요\n" + str(error) + "\nlu i에서 충돌 해결 메뉴를 열 수 있습니다."
     except (LupleError, OSError, ValueError, KeyError, TypeError) as error:
         message = str(error)
         try:

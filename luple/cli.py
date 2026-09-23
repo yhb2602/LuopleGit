@@ -8,7 +8,7 @@ from .model import Repository
 
 def parser():
     cli = argparse.ArgumentParser(prog="lu", description="루플 Git · 저장하고, 골라서 돌아오기")
-    cli.add_argument("--version", action="version", version="Luople Git 0.5.3")
+    cli.add_argument("--version", action="version", version="Luople Git 0.5.4")
     cli.add_argument("-C", default=".", metavar="폴더", help="프로젝트 폴더 (기본: 현재 폴더)")
     commands = cli.add_subparsers(dest="command")
     save = commands.add_parser("s", aliases=["save"], help="현재 작업 저장")
@@ -98,7 +98,11 @@ def dispatch(args):
         if args.operation in ("sync", "pull"):
             return remotes.sync(repo, push=args.operation == "sync")
         if args.operation == "connect":
-            return integration.connect(repo, args.line)
+            result = integration.connect(repo, args.line)
+            if sys.stdin.isatty() and sys.stdout.isatty():
+                from .conflicts import review
+                return review(repo)
+            return result
         if args.operation == "import":
             return integration.prepare(repo, args.url, args.branch)
         if args.operation == "merge":

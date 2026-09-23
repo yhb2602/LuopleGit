@@ -11,6 +11,9 @@ def destination(repo):
 
 
 def menu(repo):
+    from .conflicts import review
+    if integration.pending_path(repo).exists():
+        return review(repo)
     while True:
         selected = choose("통합 · lu i", ["개인 원격 동기화 (받고 보내기)", "개인 원격에서 기록 받기", "다른 세계선과 합치기", "저장소에서 가져와 통합", "저장소로 보내기", "통합 미리보기 상태", "통합 확정", "통합 취소", "기존 개인 원격 작업과 통합", "돌아가기"])
         if selected is None or selected == 9: return
@@ -39,12 +42,20 @@ def menu(repo):
             elif selected == 5:
                 result = integration.status(repo)
             elif selected == 6:
-                if choose("통합 확정", ["검토를 마쳤고 충돌을 해결했습니다", "취소"], integration.status(repo)) != 0: continue
-                result = integration.finish(repo, input("저장 설명 (Enter: 작업 통합): ").strip() or "작업 통합", resolved=True)
+                result = review(repo)
             elif selected == 8:
                 result = integration.connect(repo, input("통합할 세계선 (Enter: S0): ").strip() or "S0")
             else:
                 result = integration.abort(repo)
+            if selected in (2, 3, 8) and integration.pending_path(repo).exists():
+                return review(repo)
             report("통합 결과", result)
+        except remotes.IntegrationRequired as error:
+            if choose("기존 작업과 통합 필요", ["통합 내용 확인하기", "나중에 하기"], str(error)) == 0:
+                try:
+                    integration.connect(repo)
+                    return review(repo)
+                except (LupleError, OSError) as problem:
+                    report("통합 안내", str(problem))
         except (LupleError, OSError, ValueError) as error:
             report("통합 안내", str(error))

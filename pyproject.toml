@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "luople-git"
-version = "0.5.3"
+version = "0.5.4"
 description = "Local game-style save/load timelines on Git"
 requires-python = ">=3.10"
 dependencies = []

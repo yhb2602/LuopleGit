@@ -173,6 +173,44 @@ class RemoteTests(unittest.TestCase):
         integration.finish(self.a, resolved=True)
         self.assertEqual((self.a.root / "code").read_text(), "resolved\n")
 
+    def test_guided_conflict_review_and_resume(self):
+        from luple import conflicts
+        self.save(self.a, "code", "base\n")
+        self.save(self.a, "code", "left\n")
+        self.a.load("1"); self.save(self.a, "code", "right\n")
+        integration.prepare(self.a, identifier="2")
+        self.assertEqual(conflicts.unresolved(self.a), ["code"])
+        self.assertIn("left", conflicts.compare(self.a, "code"))
+        with self.assertRaises(LupleError): conflicts.resolve(self.a, "code", "manual")
+        conflicts.resolve(self.a, "code", "theirs")
+        self.assertEqual(conflicts.unresolved(self.a), [])
+        self.assertEqual((self.a.root / "code").read_text(), "right\n")
+        self.assertIn("보존", conflicts.review(self.a, picker=lambda *args: None))
+        choices = iter([1, 0])
+        conflicts.review(self.a, picker=lambda *args: next(choices))
+        self.assertEqual((self.a.root / "code").read_text(), "left\n")
+        self.assertFalse(integration.pending_path(self.a).exists())
+
+    def test_conflict_binary_and_delete_choices(self):
+        from luple import conflicts
+        (self.a.root / "그림.bin").write_bytes(b"\x00base")
+        self.save(self.a, "remove.txt", "base")
+        (self.a.root / "그림.bin").write_bytes(b"\x00left")
+        (self.a.root / "remove.txt").unlink()
+        self.a.save("delete and binary")
+        self.a.load("1")
+        (self.a.root / "그림.bin").write_bytes(b"\x00right")
+        self.save(self.a, "remove.txt", "changed")
+        integration.prepare(self.a, identifier="2")
+        self.assertEqual(set(conflicts.unresolved(self.a)), {"그림.bin", "remove.txt"})
+        self.assertIn("바이너리", conflicts.compare(self.a, "그림.bin"))
+        conflicts.resolve(self.a, "그림.bin", "ours")
+        conflicts.resolve(self.a, "remove.txt", "theirs")
+        self.assertEqual(conflicts.unresolved(self.a), [])
+        integration.finish(self.a, resolved=True)
+        self.assertEqual((self.a.root / "그림.bin").read_bytes(), b"\x00right")
+        self.assertFalse((self.a.root / "remove.txt").exists())
+
     def test_send_rejects_non_fast_forward(self):
         self.save(self.a, "a", "one"); remotes.send(self.a, str(self.remote), "main", "1")
         self.save(self.b, "b", "two")

@@ -14,14 +14,17 @@ class Setup {
         // Extraction mode is used for repeatable packaging smoke tests. It never changes PATH.
         bool extract = args.Length == 2 && args[0] == "--extract-to";
         string parent = extract ? Path.GetFullPath(args[1]) : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
-        string destination = extract ? parent : Path.Combine(parent, "LupleGit");
+        // Upgrade in the legacy location so existing terminals and PATH keep working.
+        string legacy = Path.Combine(parent, "LupleGit");
+        string destination = extract ? parent : Path.Combine(parent, "LuopleGit");
+        if (!extract && !Directory.Exists(destination) && Directory.Exists(legacy)) destination = legacy;
         string stage = destination + ".new-" + Guid.NewGuid().ToString("N");
         string backup = destination + ".previous-" + DateTime.Now.ToString("yyyyMMddHHmmss");
         bool moved = false;
         try {
-            Console.WriteLine("루플 Git 설치 중... Python과 Git이 포함되어 있습니다.");
+            Console.WriteLine("Luople Git 설치 중... Python과 Git이 포함되어 있습니다.");
             Directory.CreateDirectory(stage);
-            using (Stream input = Assembly.GetExecutingAssembly().GetManifestResourceStream("luple.zip"))
+            using (Stream input = Assembly.GetExecutingAssembly().GetManifestResourceStream("luople.zip"))
             using (var zip = new ZipArchive(input, ZipArchiveMode.Read)) {
                 foreach (var entry in zip.Entries) {
                     string target = Path.GetFullPath(Path.Combine(stage, entry.FullName));

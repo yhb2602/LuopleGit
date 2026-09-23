@@ -8,7 +8,7 @@ from .model import Repository
 
 def parser():
     cli = argparse.ArgumentParser(prog="lu", description="루플 Git · 저장하고, 골라서 돌아오기")
-    cli.add_argument("--version", action="version", version="Luple Git 0.5.2")
+    cli.add_argument("--version", action="version", version="Luople Git 0.5.3")
     cli.add_argument("-C", default=".", metavar="폴더", help="프로젝트 폴더 (기본: 현재 폴더)")
     commands = cli.add_subparsers(dest="command")
     save = commands.add_parser("s", aliases=["save"], help="현재 작업 저장")
@@ -37,6 +37,8 @@ def parser():
         mode.add_argument("--menu", action="store_true", help="선택 메뉴 열기")
     integrate = commands.add_parser("i", aliases=["integrate"], help="개인 동기화 · 가져오기 · 통합 · 보내기")
     operations = integrate.add_subparsers(dest="operation")
+    connect = operations.add_parser("connect", help="연결된 개인 원격 작업과 통합 미리보기")
+    connect.add_argument("--line", default="S0")
     for name in ("sync", "pull", "status", "abort"):
         operations.add_parser(name)
     receive = operations.add_parser("import")
@@ -95,6 +97,8 @@ def dispatch(args):
             return menu(repo)
         if args.operation in ("sync", "pull"):
             return remotes.sync(repo, push=args.operation == "sync")
+        if args.operation == "connect":
+            return integration.connect(repo, args.line)
         if args.operation == "import":
             return integration.prepare(repo, args.url, args.branch)
         if args.operation == "merge":

@@ -20,7 +20,7 @@ class Launcher {
         string root = AppDomain.CurrentDomain.BaseDirectory;
         try {
             string python = Path.Combine(root, "runtime", "python", "python.exe");
-            if (!File.Exists(python)) { Console.Error.WriteLine("Runtime missing. Extract the complete Luple package."); return 1; }
+            if (!File.Exists(python)) { Console.Error.WriteLine("Runtime missing. Extract the complete Luople package."); return 1; }
             string cwd = Environment.CurrentDirectory;
             if (args.Length == 0 && Path.GetFullPath(cwd).TrimEnd('\\') == root.TrimEnd('\\')) {
                 using (var dialog = new FolderBrowserDialog()) {
@@ -35,6 +35,6 @@ class Launcher {
             start.UseShellExecute = false;
             start.WorkingDirectory = cwd;
             using (var process = Process.Start(start)) { process.WaitForExit(); return process.ExitCode; }
-        } catch (Exception ex) { Console.Error.WriteLine("Luple: " + ex.Message); return 1; }
+        } catch (Exception ex) { Console.Error.WriteLine("Luople: " + ex.Message); return 1; }
     }
 }

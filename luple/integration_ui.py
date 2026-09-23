@@ -12,8 +12,8 @@ def destination(repo):
 
 def menu(repo):
     while True:
-        selected = choose("통합 · lu i", ["개인 원격 동기화 (받고 보내기)", "개인 원격에서 기록 받기", "다른 세계선과 합치기", "저장소에서 가져와 통합", "저장소로 보내기", "통합 미리보기 상태", "통합 확정", "통합 취소", "돌아가기"])
-        if selected is None or selected == 8: return
+        selected = choose("통합 · lu i", ["개인 원격 동기화 (받고 보내기)", "개인 원격에서 기록 받기", "다른 세계선과 합치기", "저장소에서 가져와 통합", "저장소로 보내기", "통합 미리보기 상태", "통합 확정", "통합 취소", "기존 개인 원격 작업과 통합", "돌아가기"])
+        if selected is None or selected == 9: return
         try:
             if selected in (0, 1):
                 result = remotes.sync(repo, push=selected == 0)
@@ -41,6 +41,8 @@ def menu(repo):
             elif selected == 6:
                 if choose("통합 확정", ["검토를 마쳤고 충돌을 해결했습니다", "취소"], integration.status(repo)) != 0: continue
                 result = integration.finish(repo, input("저장 설명 (Enter: 작업 통합): ").strip() or "작업 통합", resolved=True)
+            elif selected == 8:
+                result = integration.connect(repo, input("통합할 세계선 (Enter: S0): ").strip() or "S0")
             else:
                 result = integration.abort(repo)
             report("통합 결과", result)

@@ -14,6 +14,21 @@ def pending_path(repo):
     return repo.directory / "integration.json"
 
 
+def connect(repo, line="S0"):
+    from .remotes import ensure_branches
+    state = repo.read()
+    url = state["config"].get("personal_remote", "")
+    if not url:
+        raise LupleError("lu sys remote 주소 로 개인 원격을 먼저 연결하세요.")
+    ensure_branches(repo, state)
+    if line not in state["lines"]:
+        raise LupleError("세계선을 찾을 수 없습니다.")
+    head = state["lines"][line]["head"]
+    if state["current"] != {"line": line, "save": head}:
+        raise LupleError(f"먼저 {line}의 마지막 저장을 불러오세요: lu l {head} --line {line}")
+    return prepare(repo, url, state["lines"][line]["branch"])
+
+
 def prepare(repo, url=None, branch=None, identifier=None):
     with repo.lock():
         if pending_path(repo).exists():

@@ -1,10 +1,10 @@
-# Luple Git
+# Luople Git
 
-Luple Git은 Git의 저장·되돌리기·분기 개념을 게임의 Save와 Load 방식으로 보여주는 Windows CLI입니다. 처음 쓰는 사람도 `Save → Load → History` 흐름으로 시작할 수 있게 만드는 것이 목표입니다.
+Luople Git은 Git의 저장·되돌리기·분기 개념을 게임의 Save와 Load 방식으로 보여주는 Windows CLI입니다. 처음 쓰는 사람도 `Save → Load → History` 흐름으로 시작할 수 있게 만드는 것이 목표입니다.
 
 ## 빠른 시작
 
-1. `LupleGit-Setup-0.5.1.exe`를 실행합니다.
+1. `LuopleGit-Setup-0.5.3.exe`를 실행합니다.
 2. 새 PowerShell 또는 VS Code 터미널을 열고 프로젝트 폴더로 이동합니다.
 3. 아래처럼 저장합니다.
 
@@ -18,8 +18,10 @@ lu h
 처음 Save하면 필요한 Git 저장소와 루플 설정이 자동으로 만들어집니다. `lu`가 인식되지 않으면 새 터미널을 열거나 현재 터미널에서 다음을 한 번 실행합니다.
 
 ```powershell
-$env:Path += ";$env:LOCALAPPDATA\Programs\LupleGit"
+$env:Path += ";$env:LOCALAPPDATA\Programs\LuopleGit"
 ```
+
+기존 설치를 업데이트한 경우에는 `Programs\LupleGit` 경로를 그대로 사용합니다. 이 경우 위 명령의 `LuopleGit`을 `LupleGit`으로 바꾸세요. 제품 영문 이름은 **Luople Git**, 명령어는 계속 `lu`입니다. 기존 저장 기록의 호환성을 위해 `.git/luple`, `luple/state`와 내부 Python 모듈 이름은 유지합니다. 이 경로를 수동으로 바꾸지 마세요.
 
 ## Save, Load, 세계선
 
@@ -64,11 +66,14 @@ lu h --unstar S0-v1.0002
 
 ```powershell
 lu sys remote "https://github.com/사용자/저장소.git"
-lu sys branch S0 main
 lu i sync
 ```
 
-새 프로젝트는 S0을 `main`에 연결합니다. Save 또는 `lu i sync`는 다음을 함께 전송합니다.
+0.5.3부터 연결 시 원격 기본 브랜치와 저장 이력을 확인합니다. 빈 원격은 S0을 `main`에 연결하고, 기존 원격은 실제 기본 브랜치(예: `main`, `trunk`)에 연결합니다. 기본 브랜치가 불명확하면 확인을 요청합니다. 연결 확인은 파일을 바꾸거나 원격에 전송하지 않습니다.
+
+기존 0.5.2 프로젝트도 다음 `lu i sync`에서 최초 연결 확인을 수행합니다. 기존 `master` 브랜치를 삭제하지 않고 S0의 전송 대상을 원격 기본 브랜치로 맞춥니다. 연결 후 `lu sys branch`로 지정한 사용자 이름은 유지합니다. 연결 실패 시 주소와 로컬 기록은 보존되며 다음 동기화 때 재확인합니다.
+
+Save 또는 `lu i sync`는 다음을 함께 전송합니다(기본 브랜치가 `main`인 경우).
 
 | 원격 브랜치 | 내용 |
 | --- | --- |
@@ -79,10 +84,14 @@ lu i sync
 원격 `main`에 기존 이력이 있으면 자동 덮어쓰지 않습니다. 먼저 아래처럼 통합 미리보기를 만들고 확인한 뒤 확정합니다.
 
 ```powershell
-lu i import "https://github.com/사용자/저장소.git" main
+lu i connect
 lu i finish --message "기존 main과 루플 작업 통합"
 lu i sync
 ```
+
+`lu i connect`는 연결된 개인 원격의 S0 대상 브랜치를 가져와 통합 미리보기를 만듭니다. 먼저 현재 변경사항을 Save하고 S0의 마지막 저장에서 실행하세요. 다른 세계선은 `lu i connect --line S1`처럼 지정할 수 있습니다. 메뉴에서는 `lu i` → `기존 개인 원격 작업과 통합`을 선택합니다. 취소는 `lu i abort`입니다.
+
+기존 원격 기록을 포함하지 않는 전송은 중단하고 `통합 필요`로 안내합니다. 단순히 `sync`를 반복해서는 해결되지 않습니다. 통합 미리보기를 검토하고 확정하면 새 Save에 양쪽 이력이 연결됩니다. 원격이 전송 직전에 바뀌는 경우에도 강제 덮어쓰지는 않습니다.
 
 충돌이 나면 루플이 알려준 검토 폴더에서 충돌 표식 `<<<<<<<`, `=======`, `>>>>>>>`을 모두 정리하고 저장한 뒤 실행합니다.
 

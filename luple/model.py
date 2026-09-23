@@ -1,4 +1,4 @@
-"""Luple domain model. Labels and views are independent of Git storage."""
+"""Luople domain model. Labels and views are independent of Git storage."""
 import getpass
 import contextlib
 import json
@@ -57,7 +57,7 @@ class Repository(Storage):
 
     def defaults(self):
         name = git(self.root, "config", "user.name", check=False).decode().strip() or self.user_key()
-        email = git(self.root, "config", "user.email", check=False).decode().strip() or "local@luple.invalid"
+        email = git(self.root, "config", "user.email", check=False).decode().strip() or "local@luople.invalid"
         branch = git(self.root, "symbolic-ref", "--short", "HEAD", check=False).decode().strip() or "main"
         return {"org": "Local", "project": self.root.name, "main_version": "v1.0",
                 "branch": branch, "name": name, "initials": name, "email": email,

@@ -15,6 +15,38 @@ BRANCH = "refs/heads/luple/state"
 CACHE = "refs/luple/remote/state"
 
 
+class IntegrationRequired(LupleError):
+    pass
+
+
+def remote_heads(repo, url):
+    listing = run(repo, "ls-remote", "--symref", url, "HEAD", "refs/heads/*")
+    heads, default = {}, None
+    for row in listing.splitlines():
+        value, ref = row.split("\t", 1)
+        if value.startswith("ref: refs/heads/") and ref == "HEAD":
+            default = value[len("ref: refs/heads/"):]
+        elif ref.startswith("refs/heads/"):
+            heads[ref[len("refs/heads/"):]] = value
+    if default == "luple/state" or default not in heads:
+        candidates = [name for name in heads if name != "luple/state"]
+        default = "main" if "main" in candidates else candidates[0] if len(candidates) == 1 else None
+    if default is None and any(name != "luple/state" for name in heads):
+        raise LupleError("원격 기본 브랜치를 확인할 수 없습니다. 원격 저장소에서 기본 브랜치를 설정하세요.")
+    return default or "main", heads
+
+
+def includes(repo, descendant, ancestor):
+    base = git(repo.root, "merge-base", descendant, ancestor, check=False).decode().strip()
+    return base == ancestor
+
+
+def integration_message(line, branch):
+    return (f"기존 원격 작업과 통합이 필요합니다: {line} → {branch}\n"
+            f"lu i connect --line {line} 로 통합 미리보기를 여세요.\n"
+            "검토 후 lu i finish로 확정하세요. 충돌이 있으면 해결 후 --resolved를 추가하세요.")
+
+
 def address(value):
     value = value.strip()
     if not value or value.startswith("-") or any(ord(c) < 32 for c in value):
@@ -61,13 +93,44 @@ def run(repo, *args, timeout=120):
 
 
 def configure(repo, url):
-    if url != "off": address(url)
+    if url != "off": url = address(url)
     with repo.lock():
         state = repo.read()
         state["config"]["personal_remote"] = "" if url == "off" else url
         state.pop("remote_status", None)
         repo.write(state, "personal-remote")
-    return "개인 원격 저장소 설정 완료. 기존 기록 전송은 lu i sync로 시작하세요."
+    if url == "off":
+        return "개인 원격 연결을 해제했습니다. 로컬 기록은 보존됩니다."
+    try:
+        return check_connection(repo, url)
+    except (LupleError, OSError) as error:
+        return "주소 저장 완료 · 연결 확인 대기: " + str(error) + "\nlu i sync로 연결을 다시 확인하세요."
+
+
+def check_connection(repo, url):
+    # Network inspection happens before taking the local state lock.
+    default, heads = remote_heads(repo, url)
+    target = fetch_target(repo, url, default) if default in heads else None
+    with repo.lock():
+        state = repo.read()
+        if state["config"].get("personal_remote") != url:
+            raise LupleError("확인 중 원격 주소가 변경되었습니다. 다시 연결하세요.")
+        ensure_uids(state)
+        ensure_branches(repo, state)
+        old = state.get("remote_connection", {})
+        if old.get("url") != url:
+            if any(k != "S0" and v["branch"] == default for k, v in state["lines"].items()):
+                raise LupleError("원격 기본 브랜치를 다른 세계선이 사용 중입니다. lu sys branch로 확인하세요.")
+            state["lines"]["S0"].update(branch=default, branch_changed=time.time_ns())
+        branch = state["lines"]["S0"]["branch"]
+        state["remote_connection"] = {"url": url, "default": default}
+        head = state["saves"][state["lines"]["S0"]["head"]]["commit"]
+        needs_merge = branch == default and target and not includes(repo, head, target)
+        state["remote_status"] = "통합 필요" if needs_merge else "연결 확인 완료"
+        repo.write(state, "remote-connect", branch=branch)
+    if needs_merge:
+        return integration_message("S0", branch)
+    return f"개인 원격 연결 확인 완료: S0 → {branch}\nlu i sync로 저장 기록을 동기화하세요."
 
 
 def ensure_uids(state):
@@ -212,6 +275,11 @@ def import_graph(repo, state, data):
 
 
 def sync(repo, push=True):
+    initial = repo.read()
+    url = initial["config"].get("personal_remote", "")
+    if not url: return "개인 원격 미설정 · 내 PC에 보존"
+    if initial.get("remote_connection", {}).get("url") != url:
+        check_connection(repo, url)
     with repo.lock():
         state = repo.read()
         url = state["config"].get("personal_remote", "")
@@ -236,6 +304,17 @@ def sync(repo, push=True):
         repo.write(state, "remote-fetch")
         if not push:
             return "개인 원격 기록을 가져왔습니다. 현재 작업 파일은 그대로입니다."
+        # Check code history too: the manifest alone cannot detect ordinary Git pushes.
+        _, heads = remote_heads(repo, url)
+        for name, line in state["lines"].items():
+            if line["branch"] not in heads:
+                continue
+            target = fetch_target(repo, url, line["branch"])
+            head = state["saves"][line["head"]].get("commit")
+            if head and not includes(repo, head, target):
+                state["remote_status"] = "통합 필요"
+                repo.write(state, "remote-integration-required", line=name)
+                raise IntegrationRequired(integration_message(name, line["branch"]))
         payload = {"format": 1, "saves": state["saves"], "lines": state["lines"]}
         blob = git(repo.root, "hash-object", "-w", "--stdin", data=json.dumps(payload, ensure_ascii=False).encode()).decode().strip()
         tree = git(repo.root, "mktree", data=f"100644 blob {blob}\tstate.json\n".encode()).decode().strip()
@@ -243,15 +322,20 @@ def sync(repo, push=True):
         parents = list(dict.fromkeys(e["commit"] for e in state["saves"].values() if e.get("commit")))
         anchor = None
         for offset in range(0, len(parents), 64):
-            anchor = repo.commit(tree, ([anchor] if anchor else []) + parents[offset:offset + 64], "Luple snapshot anchors")
-        commit = repo.commit(tree, list(dict.fromkeys(p for p in (remote_head, anchor) if p)), "Luple personal history sync")
+            anchor = repo.commit(tree, ([anchor] if anchor else []) + parents[offset:offset + 64], "Luople snapshot anchors")
+        commit = repo.commit(tree, list(dict.fromkeys(p for p in (remote_head, anchor) if p)), "Luople personal history sync")
         # Normal fast-forward push: concurrent remote updates are rejected.
         specs = [commit + ":" + BRANCH]
         for line in state["lines"].values():
             head = state["saves"][line["head"]]
             if head.get("commit") and not head.get("purged"):
                 specs.append(head["commit"] + ":refs/heads/" + line["branch"])
-        run(repo, "push", "--atomic", url, *specs)
+        try:
+            run(repo, "push", "--atomic", url, *specs)
+        except LupleError as error:
+            if any(word in str(error) for word in ("fetch first", "non-fast-forward", "stale info")):
+                raise IntegrationRequired("전송 중 원격 작업이 변경되었습니다. lu i pull로 기록을 확인하고 lu i connect로 통합하세요.") from error
+            raise
         state["remote_status"] = "동기화 완료"
         repo.write(state, "remote-push", commit=commit)
         return "개인 원격 동기화 완료"
@@ -260,6 +344,8 @@ def sync(repo, push=True):
 def safe_sync(repo, push=True):
     try:
         return sync(repo, push)
+    except IntegrationRequired as error:
+        return "로컬 저장 완료 · 원격 통합 필요\n" + str(error)
     except (LupleError, OSError, ValueError, KeyError, TypeError) as error:
         message = str(error)
         try:

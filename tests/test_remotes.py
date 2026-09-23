@@ -56,6 +56,51 @@ class RemoteTests(unittest.TestCase):
         with self.assertRaises(LupleError):
             remotes.configure_branch(self.a, "S1", "luple/state")
 
+    def test_connection_empty_remote_replaces_legacy_master(self):
+        remotes.configure_branch(self.a, "S0", "master")
+        result = remotes.configure(self.a, str(self.remote))
+        self.assertIn("S0 → main", result)
+        self.save(self.a, "code", "local")
+        self.assertEqual(git(self.remote, "show", "main:code"), b"local")
+        self.assertFalse(git(self.remote, "show-ref", "--verify", "refs/heads/master", check=False))
+
+    def test_connection_existing_default_requires_review_then_syncs(self):
+        self.save(self.a, "remote.txt", "remote")
+        remotes.send(self.a, str(self.remote), "trunk", "1")
+        git(self.remote, "symbolic-ref", "HEAD", "refs/heads/trunk")
+        self.save(self.b, "local.txt", "local")
+        remotes.configure_branch(self.b, "S0", "master")
+        result = remotes.configure(self.b, str(self.remote))
+        self.assertIn("통합이 필요", result)
+        self.assertEqual(self.b.read()["lines"]["S0"]["branch"], "trunk")
+        before = git(self.remote, "rev-parse", "trunk")
+        result = remotes.safe_sync(self.b)
+        self.assertIn("lu i connect", result)
+        self.assertNotIn("다시 시도", result)
+        self.assertEqual(git(self.remote, "rev-parse", "trunk"), before)
+        integration.connect(self.b)
+        self.assertFalse((self.b.root / "remote.txt").exists())
+        integration.finish(self.b, "reviewed")
+        self.assertEqual(git(self.remote, "show", "trunk:remote.txt"), b"remote")
+        self.assertEqual(git(self.remote, "show", "trunk:local.txt"), b"local")
+
+    def test_connection_compatible_history_and_legacy_upgrade(self):
+        self.save(self.a, "code", "one")
+        remotes.send(self.a, str(self.remote), "main", "1")
+        self.save(self.a, "code", "two")
+        with self.a.lock():
+            state = self.a.read()
+            state["lines"]["S0"]["branch"] = "master"
+            state["config"]["personal_remote"] = str(self.remote)
+            state.pop("remote_connection", None)
+            self.a.write(state, "legacy-fixture")
+        remotes.sync(self.a)
+        self.assertEqual(git(self.remote, "show", "main:code"), b"two")
+        self.assertEqual(self.a.read()["lines"]["S0"]["branch"], "main")
+        remotes.configure_branch(self.a, "S0", "custom")
+        remotes.sync(self.a)
+        self.assertEqual(self.a.read()["lines"]["S0"]["branch"], "custom")
+
     def test_save_shows_remote_address_after_successful_sync(self):
         remotes.configure(self.a, str(self.remote))
         output = self.save(self.a, "readme.md", "saved")

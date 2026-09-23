@@ -1,1 +1,1 @@
-"""Luple Git: local, recoverable save timelines."""
+"""Luople Git: local, recoverable save timelines."""

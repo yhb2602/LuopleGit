@@ -87,13 +87,13 @@ class Repository:
         repo.directory.mkdir(exist_ok=True)
         with repo.lock():
             if repo.path.exists():
-                raise LupleError("Luple is already initialized.")
+                raise LupleError("Luople is already initialized.")
             if git(repo.root, "ls-files", "--stage").find(b"160000 ") >= 0:
                 raise LupleError("Submodules are not supported in v0.1.")
             head = git(repo.root, "rev-parse", "--verify", "HEAD", check=False).decode().strip()
             if not head:
                 tree = git(repo.root, "hash-object", "-t", "tree", "-w", "--stdin", data=b"").decode().strip()
-                head = repo.commit(tree, None, "Luple initial empty state")
+                head = repo.commit(tree, None, "Luople initial empty state")
             git(repo.root, "update-ref", "refs/luple/saves/0", head)
             state = {"schema": 1, "next_save": 1, "next_temp": 1,
                      "current": {"line": "S0", "save": "0"},
@@ -145,8 +145,8 @@ class Repository:
     def commit(self, tree, parent, message):
         env = {}
         for role in ("AUTHOR", "COMMITTER"):
-            name = git(self.root, "config", "user.name", check=False).decode().strip() or "Luple Local"
-            email = git(self.root, "config", "user.email", check=False).decode().strip() or "local@luple.invalid"
+            name = git(self.root, "config", "user.name", check=False).decode().strip() or "Luople Local"
+            email = git(self.root, "config", "user.email", check=False).decode().strip() or "local@luople.invalid"
             env[f"GIT_{role}_NAME"] = name
             env[f"GIT_{role}_EMAIL"] = email
         args = ["commit-tree", tree]
@@ -168,7 +168,7 @@ class Repository:
         if any((gitdir / name).exists() for name in (
             "index.lock", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"
         )) or git(self.root, "ls-files", "--unmerged"):
-            raise LupleError("Finish the active Git operation/conflict before using Luple.")
+            raise LupleError("Finish the active Git operation/conflict before using Luople.")
 
     def save(self, message):
         with self.lock():
